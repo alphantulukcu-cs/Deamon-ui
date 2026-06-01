@@ -1,26 +1,49 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useEdgeDetection } from '../../hooks/useEdgeDetection'
-import {
-  captureFullFrame,
-  useImageProcessing,
-} from '../../hooks/useImageProcessing'
+import { useImageProcessing } from '../../hooks/useImageProcessing'
 import { useQrDecoder } from '../../hooks/useQrDecoder'
 import { analyzeUploadedChequeDraftBatch } from '../../services/multiChequeAnalyzer'
 import { analyzeUploadedCheckImage } from '../../services/uploadedCheckAnalyzer'
 import { useScannerCamera } from '../../hooks/useScannerCamera'
-import type { CaptureDraft, EnhancementMode, ProcessedCapture } from '../../types/scanner'
+import type {
+  CaptureDraft,
+  CornerQuad,
+  EnhancementMode,
+  ProcessedCapture,
+} from '../../types/scanner'
 import { createGuideCorners, quadEdgeLengths } from '../../utils/scanner/geometry'
 import AdjustScreen from './AdjustScreen'
 import ScannerView from './ScannerView'
 
 const DETECTION_WIDTH = 640
 const MIN_CAPTURE_EDGE_RATIO = 0.92
+const DEFAULT_MODE: EnhancementMode = 'enhanced'
 
-type CaptureState = 'loading' | 'scanning' | 'adjusting' | 'preview' | 'error'
+type CaptureState = 'loading' | 'scanning' | 'editing' | 'adjusting' | 'error'
+
+interface DraftItem {
+  id: string
+  draft: CaptureDraft
+  processed: ProcessedCapture
+  qrValue: string | null
+  enhancementMode: EnhancementMode
+}
 
 export interface CameraCaptureProps {
-  onCapture: (dataUrl: string, qrValue?: string) => void
-  onCaptureMultiple?: (items: Array<{ dataUrl: string; qrValue: string }>) => void
+  onCapture: (
+    dataUrl: string,
+    qrValue?: string,
+    originalDataUrl?: string,
+    enhancementMode?: EnhancementMode,
+  ) => void
+  onCaptureMultiple?: (
+    items: Array<{
+      dataUrl: string
+      qrValue: string
+      originalDataUrl?: string
+      enhancementMode?: EnhancementMode
+    }>,
+  ) => void
   onError?: (error: string) => void
   instructionText?: string
   showOverlay?: boolean
@@ -33,6 +56,10 @@ function resolveCaptureErrorMessage(error: unknown): string {
   }
 
   return 'Fotoğraf alınamadı. Lütfen tekrar deneyin.'
+}
+
+function createDraftId(): string {
+  return crypto.randomUUID()
 }
 
 export function CameraCapture({
@@ -48,18 +75,12 @@ export function CameraCapture({
 
   const [captureState, setCaptureState] = useState<CaptureState>('loading')
   const [captureDraft, setCaptureDraft] = useState<CaptureDraft | null>(null)
-  const [processedCapture, setProcessedCapture] = useState<ProcessedCapture | null>(null)
-  const [rawCaptureDataUrl, setRawCaptureDataUrl] = useState<string | null>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
   const [liveQrValue, setLiveQrValue] = useState<string | null>(null)
-  const [multiQueue, setMultiQueue] = useState<Array<{ draft: CaptureDraft; qrValue: string }> | null>(null)
-  const [multiCollected, setMultiCollected] = useState<Array<{ dataUrl: string; qrValue: string }> | null>(null)
-  // In multi-cheque mode we require the user to explicitly pick a filter per cheque
-  // before allowing "Bu Ceki Ekle" (prevents accidental auto-accept).
-  const [multiSelectedEnhancementMode, setMultiSelectedEnhancementMode] = useState<EnhancementMode | null>(null)
-
+  const [drafts, setDrafts] = useState<DraftItem[]>([])
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null)
   const capturePendingRef = useRef(false)
-  const localCornersRef = useRef(captureDraft?.corners ?? null)
+  const localCornersRef = useRef<CornerQuad | null>(null)
   const qrCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploadAnalyzing, setIsUploadAnalyzing] = useState(false)
@@ -91,14 +112,7 @@ export function CameraCapture({
     reset: resetDetection,
   } = useEdgeDetection(videoRef, isReady, documentMode)
 
-  const {
-    createCaptureDraft,
-    processCapturedFrame,
-    reprocessWithMode,
-    isProcessing,
-    enhancementMode,
-    setEnhancementMode,
-  } = useImageProcessing(videoRef)
+  const { createCaptureDraft, processCapturedFrame, isProcessing } = useImageProcessing(videoRef)
 
   const videoElement = videoRef.current
   const videoWidth = videoElement?.videoWidth || 1920
@@ -110,9 +124,13 @@ export function CameraCapture({
     [detectionHeight],
   )
 
+  const selectedDraft = useMemo(
+    () => drafts.find((item) => item.id === selectedDraftId) ?? null,
+    [drafts, selectedDraftId],
+  )
+
   const guideEdges = documentMode ? quadEdgeLengths(guideCorners) : null
   const detectedEdges = documentMode && corners ? quadEdgeLengths(corners) : null
-
   const isOrientationReady = true
   const isCloseEnough = Boolean(
     !documentMode ||
@@ -123,22 +141,19 @@ export function CameraCapture({
         detectedEdges.left >= guideEdges.left * MIN_CAPTURE_EDGE_RATIO &&
         detectedEdges.right >= guideEdges.right * MIN_CAPTURE_EDGE_RATIO),
   )
-
   const needsToMoveCloser =
     documentMode && isOrientationReady && Boolean(corners) && !isCloseEnough
-
   const orientationPrompt = null
 
   const canCapture =
     captureState === 'scanning' &&
+    !isProcessing &&
     (documentMode
       ? isStable &&
         !orientationPrompt &&
         !needsToMoveCloser &&
         (!shouldRequireQr || Boolean(liveQrValue))
       : isReady)
-
-  const capturedPreviewDataUrl = processedCapture?.dataURL ?? rawCaptureDataUrl
 
   useQrDecoder({
     videoRef,
@@ -182,9 +197,7 @@ export function CameraCapture({
 
     setCaptureState('error')
     setCaptureError(cameraError.message)
-    if (onError) {
-      onError(cameraError.message)
-    }
+    onError?.(cameraError.message)
   }, [cameraError, onError])
 
   useEffect(() => {
@@ -193,22 +206,25 @@ export function CameraCapture({
     }
   }, [corners])
 
-  useEffect(() => {
-    if (!documentMode || captureState !== 'scanning' || isOrientationReady) {
-      return
-    }
-
+  const resetScannerForNextCapture = useCallback((): void => {
+    capturePendingRef.current = false
+    setCaptureError(null)
+    setLiveQrValue(null)
     localCornersRef.current = null
     resetDetection()
-  }, [captureState, documentMode, isOrientationReady, resetDetection])
+    setCaptureState('scanning')
+  }, [resetDetection])
 
-  useEffect(() => {
-    if (captureState !== 'scanning') {
-      capturePendingRef.current = false
-    }
-  }, [captureState])
+  const appendDraft = useCallback((nextDraft: DraftItem): void => {
+    setDrafts((previous) => [...previous, nextDraft])
+    setSelectedDraftId(nextDraft.id)
+  }, [])
 
-  const handleCapture = useCallback((): void => {
+  const updateDraft = useCallback((draftId: string, updater: (draft: DraftItem) => DraftItem): void => {
+    setDrafts((previous) => previous.map((draft) => (draft.id === draftId ? updater(draft) : draft)))
+  }, [])
+
+  const handleCapture = useCallback(async (): Promise<void> => {
     if (!canCapture || capturePendingRef.current) {
       return
     }
@@ -216,9 +232,7 @@ export function CameraCapture({
     if (shouldRequireQr && !liveQrValue) {
       const message = 'QR kod okunmadan çekim yapılamaz.'
       setCaptureError(message)
-      if (onError) {
-        onError(message)
-      }
+      onError?.(message)
       return
     }
 
@@ -226,169 +240,166 @@ export function CameraCapture({
     setCaptureError(null)
 
     try {
-      if (documentMode) {
-        const currentCorners = localCornersRef.current ?? guideCorners
-        localCornersRef.current = currentCorners
+      const currentCorners = localCornersRef.current ?? guideCorners
+      const draft = createCaptureDraft(currentCorners, DETECTION_WIDTH, detectionHeight)
+      const processed = await processCapturedFrame(draft.sourceCanvas, draft.corners, DEFAULT_MODE)
 
-        const draft = createCaptureDraft(
-          currentCorners,
-          DETECTION_WIDTH,
-          detectionHeight,
-        )
+      appendDraft({
+        id: createDraftId(),
+        draft,
+        processed,
+        qrValue: liveQrValue?.trim() ?? null,
+        enhancementMode: DEFAULT_MODE,
+      })
 
-        setCaptureDraft(draft)
-        setCaptureState('adjusting')
-        return
-      }
-
-      const currentVideo = videoRef.current
-      if (!currentVideo) {
-        throw new Error('Kamera görüntüsü henüz hazır değil.')
-      }
-
-      const dataUrl = captureFullFrame(currentVideo)
-      setRawCaptureDataUrl(dataUrl)
-      setProcessedCapture(null)
-      setCaptureState('preview')
+      resetScannerForNextCapture()
     } catch (error: unknown) {
       capturePendingRef.current = false
       const message = resolveCaptureErrorMessage(error)
       setCaptureError(message)
-      if (onError) {
-        onError(message)
-      }
+      onError?.(message)
     }
   }, [
+    appendDraft,
     canCapture,
     createCaptureDraft,
     detectionHeight,
-    documentMode,
     guideCorners,
     liveQrValue,
     onError,
+    processCapturedFrame,
+    resetScannerForNextCapture,
     shouldRequireQr,
-    videoRef,
   ])
 
-  const handleConfirmAdjustment = useCallback(
-    async (adjustedCorners: typeof guideCorners): Promise<void> => {
-      if (!captureDraft?.sourceCanvas) {
+  const handleOpenDraft = useCallback((draftId: string): void => {
+    setSelectedDraftId(draftId)
+    setCaptureError(null)
+    setCaptureState('editing')
+  }, [])
+
+  const handleChangeDraftMode = useCallback(
+    async (mode: EnhancementMode): Promise<void> => {
+      if (!selectedDraft) {
         return
       }
 
       try {
-        const result = await processCapturedFrame(
-          captureDraft.sourceCanvas,
-          adjustedCorners,
+        setCaptureError(null)
+        const processed = await processCapturedFrame(
+          selectedDraft.draft.sourceCanvas,
+          selectedDraft.draft.corners,
+          mode,
         )
 
-        setProcessedCapture(result)
-        setRawCaptureDataUrl(null)
-        setCaptureDraft(null)
-        if (multiQueue && multiCollected && onCaptureMultiple) {
-          // Force explicit filter selection for each cheque in the multi flow.
-          setMultiSelectedEnhancementMode(null)
-        }
-        setCaptureState('preview')
+        updateDraft(selectedDraft.id, (draft) => ({
+          ...draft,
+          processed,
+          enhancementMode: mode,
+        }))
       } catch (error: unknown) {
         const message = resolveCaptureErrorMessage(error)
         setCaptureError(message)
-        if (onError) {
-          onError(message)
-        }
+        onError?.(message)
       }
     },
-    [captureDraft, multiCollected, multiQueue, onCaptureMultiple, onError, processCapturedFrame],
+    [onError, processCapturedFrame, selectedDraft, updateDraft],
   )
 
-  const handleRetake = useCallback((): void => {
-    capturePendingRef.current = false
-    setCaptureDraft(null)
-    setProcessedCapture(null)
-    setRawCaptureDataUrl(null)
+  const handleBeginAdjustDraft = useCallback((): void => {
+    if (!selectedDraft) {
+      return
+    }
+
+    setCaptureDraft(selectedDraft.draft)
     setCaptureError(null)
-    setLiveQrValue(null)
-    setMultiQueue(null)
-    setMultiCollected(null)
-    setMultiSelectedEnhancementMode(null)
-    localCornersRef.current = null
-    resetDetection()
-    setCaptureState('scanning')
-  }, [resetDetection])
+    setCaptureState('adjusting')
+  }, [selectedDraft])
 
-  const handleUseCapturedPhoto = useCallback((): void => {
-    if (!capturedPreviewDataUrl) {
-      return
-    }
-
-    if (shouldRequireQr && !liveQrValue) {
-      const message = 'QR doğrulanamadı. Lütfen tekrar çekin.'
-      setCaptureError(message)
-      if (onError) {
-        onError(message)
-      }
-      return
-    }
-
-    if (multiQueue && multiCollected && onCaptureMultiple) {
-      const currentQr = liveQrValue?.trim()
-      if (!currentQr) {
+  const handleConfirmAdjustment = useCallback(
+    async (adjustedCorners: CornerQuad): Promise<void> => {
+      if (!selectedDraft) {
         return
       }
-
-      const nextCollected = [...multiCollected, { dataUrl: capturedPreviewDataUrl, qrValue: currentQr }]
-
-      if (multiQueue.length <= 1) {
-        // Finish multi-review: push all at once into the session.
-        setMultiQueue(null)
-        setMultiCollected(null)
-        onCaptureMultiple(nextCollected)
-        return
-      }
-
-      const [, ...rest] = multiQueue
-      const next = rest[0]
-      if (!next) {
-        setMultiQueue(null)
-        setMultiCollected(null)
-        onCaptureMultiple(nextCollected)
-        return
-      }
-
-      setMultiCollected(nextCollected)
-      setMultiQueue(rest)
-      setCaptureDraft(next.draft)
-      setProcessedCapture(null)
-      setRawCaptureDataUrl(null)
-      setLiveQrValue(next.qrValue)
-      setCaptureError(null)
-      setMultiSelectedEnhancementMode(null)
-      setCaptureState('adjusting')
-      return
-    }
-
-    onCapture(capturedPreviewDataUrl, liveQrValue ?? undefined)
-  }, [capturedPreviewDataUrl, liveQrValue, multiCollected, multiQueue, onCapture, onCaptureMultiple, onError, shouldRequireQr])
-
-  const handleReprocess = useCallback(
-    async (mode: EnhancementMode): Promise<void> => {
-      setEnhancementMode(mode)
 
       try {
-        const result = await reprocessWithMode(mode)
-        if (result) {
-          setProcessedCapture(result)
-        }
+        const processed = await processCapturedFrame(
+          selectedDraft.draft.sourceCanvas,
+          adjustedCorners,
+          selectedDraft.enhancementMode,
+        )
+
+        updateDraft(selectedDraft.id, (draft) => ({
+          ...draft,
+          draft: {
+            ...draft.draft,
+            corners: adjustedCorners,
+          },
+          processed,
+        }))
+
+        setCaptureDraft(null)
+        setCaptureState('editing')
       } catch (error: unknown) {
         const message = resolveCaptureErrorMessage(error)
         setCaptureError(message)
-        if (onError) {
-          onError(message)
-        }
+        onError?.(message)
       }
     },
-    [onError, reprocessWithMode, setEnhancementMode],
+    [onError, processCapturedFrame, selectedDraft, updateDraft],
   )
+
+  const handleDeleteSelectedDraft = useCallback((): void => {
+    if (!selectedDraft) {
+      return
+    }
+
+    setDrafts((previous) => previous.filter((draft) => draft.id !== selectedDraft.id))
+    setSelectedDraftId((previousId) => {
+      if (previousId !== selectedDraft.id) {
+        return previousId
+      }
+
+      const remaining = drafts.filter((draft) => draft.id !== selectedDraft.id)
+      return remaining[0]?.id ?? null
+    })
+    setCaptureState(drafts.length <= 1 ? 'scanning' : 'editing')
+  }, [drafts, selectedDraft])
+
+  const handleFinalizeSession = useCallback((): void => {
+    if (drafts.length === 0) {
+      return
+    }
+
+    const items = drafts
+      .filter((draft) => !shouldRequireQr || Boolean(draft.qrValue))
+      .map((draft) => ({
+        dataUrl: draft.processed.dataURL,
+        qrValue: draft.qrValue ?? '',
+        originalDataUrl: draft.processed.originalDataURL,
+        enhancementMode: draft.enhancementMode,
+      }))
+
+    if (items.length === 0) {
+      const message = 'En az bir geçerli çek olmadan devam edilemez.'
+      setCaptureError(message)
+      onError?.(message)
+      return
+    }
+
+    if (items.length === 1 || !onCaptureMultiple) {
+      const first = items[0]
+      onCapture(
+        first.dataUrl,
+        first.qrValue,
+        first.originalDataUrl,
+        first.enhancementMode,
+      )
+      return
+    }
+
+    onCaptureMultiple(items)
+  }, [drafts, onCapture, onCaptureMultiple, onError, shouldRequireQr])
 
   const handleRetryCamera = useCallback((): void => {
     setCaptureError(null)
@@ -396,9 +407,7 @@ export function CameraCapture({
     void restartCamera().catch((error: unknown) => {
       const message = resolveCaptureErrorMessage(error)
       setCaptureError(message)
-      if (onError) {
-        onError(message)
-      }
+      onError?.(message)
       setCaptureState('error')
     })
   }, [onError, restartCamera])
@@ -406,6 +415,24 @@ export function CameraCapture({
   const handlePickImage = useCallback((): void => {
     fileInputRef.current?.click()
   }, [])
+
+  const createDraftItem = useCallback(
+    async (
+      draft: CaptureDraft,
+      qrValue: string | null,
+      mode: EnhancementMode = DEFAULT_MODE,
+    ): Promise<DraftItem> => {
+      const processed = await processCapturedFrame(draft.sourceCanvas, draft.corners, mode)
+      return {
+        id: createDraftId(),
+        draft,
+        processed,
+        qrValue,
+        enhancementMode: mode,
+      }
+    },
+    [processCapturedFrame],
+  )
 
   const handleFileUpload = useCallback(
     async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
@@ -419,9 +446,7 @@ export function CameraCapture({
       if (!file.type.startsWith('image/')) {
         const message = 'Lutfen gecerli bir resim dosyasi yukleyin.'
         setCaptureError(message)
-        if (onError) {
-          onError(message)
-        }
+        onError?.(message)
         return
       }
 
@@ -430,44 +455,40 @@ export function CameraCapture({
 
       try {
         if (onCaptureMultiple) {
-          const drafts = await analyzeUploadedChequeDraftBatch(file)
-          if (drafts.length >= 2) {
-            setMultiCollected([])
-            setMultiQueue(drafts)
-            setCaptureDraft(drafts[0].draft)
-            setProcessedCapture(null)
-            setRawCaptureDataUrl(null)
-            setLiveQrValue(drafts[0].qrValue)
-            setCaptureError('Birden fazla cek bulundu. Her cek icin koseleri duzeltip filtreyi secin.')
-            setCaptureState('adjusting')
+          const batch = await analyzeUploadedChequeDraftBatch(file)
+          if (batch.length >= 2) {
+            const nextDrafts = await Promise.all(
+              batch.map((item) => createDraftItem(item.draft, item.qrValue)),
+            )
+            setDrafts((previous) => [...previous, ...nextDrafts])
+            setSelectedDraftId(nextDrafts[0]?.id ?? null)
+            setCaptureState('editing')
             return
           }
         }
 
         const analysis = await analyzeUploadedCheckImage(file)
         if (!analysis.draft.previewDataURL || !analysis.draft.width || !analysis.draft.height) {
-          const message = 'Yuklenen resim islenemedi. Baska bir resim deneyin.'
-          setCaptureError(message)
-          if (onError) {
-            onError(message)
-          }
-          return
+          throw new Error('Yuklenen resim islenemedi. Baska bir resim deneyin.')
         }
 
         const initialCorners =
-          analysis.draft.detectedCorners ?? createGuideCorners(analysis.draft.width, analysis.draft.height)
+          analysis.draft.detectedCorners ??
+          createGuideCorners(analysis.draft.width, analysis.draft.height)
 
-        setProcessedCapture(null)
-        setRawCaptureDataUrl(null)
-        setCaptureDraft({
-          sourceCanvas: analysis.draft.sourceCanvas,
-          previewDataURL: analysis.draft.previewDataURL,
-          width: analysis.draft.width,
-          height: analysis.draft.height,
-          corners: initialCorners,
-        })
-        setLiveQrValue(analysis.qrValue)
-        setCaptureState('adjusting')
+        const nextDraft = await createDraftItem(
+          {
+            sourceCanvas: analysis.draft.sourceCanvas,
+            previewDataURL: analysis.draft.previewDataURL,
+            width: analysis.draft.width,
+            height: analysis.draft.height,
+            corners: initialCorners,
+          },
+          analysis.qrValue,
+        )
+
+        appendDraft(nextDraft)
+        setCaptureState('editing')
 
         if (!analysis.draft.detectedCorners) {
           setCaptureError('Cek otomatik algilanamadi. Koseleri elle duzeltin.')
@@ -475,14 +496,12 @@ export function CameraCapture({
       } catch (error: unknown) {
         const message = resolveCaptureErrorMessage(error)
         setCaptureError(message)
-        if (onError) {
-          onError(message)
-        }
+        onError?.(message)
       } finally {
         setIsUploadAnalyzing(false)
       }
     },
-    [onCaptureMultiple, onError],
+    [appendDraft, createDraftItem, onCaptureMultiple, onError],
   )
 
   if (captureState === 'error') {
@@ -527,17 +546,12 @@ export function CameraCapture({
                 ? 'Kamera başlatılıyor...'
                 : 'Tarayıcı motoru hazırlanıyor...'}
           </p>
-          {documentMode && workerEngine ? (
-            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/75">
-              Motor: {workerEngine === 'opencv' ? 'OpenCV.js' : 'Yerel Fallback'}
-            </span>
-          ) : null}
         </div>
       </section>
     )
   }
 
-  if (captureState === 'adjusting' && captureDraft) {
+  if (captureState === 'adjusting' && captureDraft && selectedDraft) {
     return (
       <section className="relative h-[100dvh] w-full overflow-hidden bg-black">
         <AdjustScreen
@@ -546,102 +560,134 @@ export function CameraCapture({
           sourceHeight={captureDraft.height}
           initialCorners={captureDraft.corners}
           isProcessing={isProcessing}
-          onRetake={handleRetake}
+          onRetake={() => {
+            setCaptureState('editing')
+          }}
           onConfirm={(cornersValue) => {
             void handleConfirmAdjustment(cornersValue)
           }}
+          title={`Çek ${drafts.findIndex((item) => item.id === selectedDraft.id) + 1} köşelerini düzenleyin`}
+          description="Tutamaçları çek köşelerine taşıyın, sonra değişikliği kaydedin."
+          retakeLabel="Editöre Dön"
+          confirmLabel="Kaydet"
         />
         {captureError ? (
           <div className="absolute left-4 right-4 top-4 z-30 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
             {captureError}
           </div>
         ) : null}
-        {multiQueue && multiCollected ? (
-          <div className="absolute bottom-4 left-4 z-30 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs font-semibold text-white/85 backdrop-blur">
-            Çek {multiCollected.length + 1}/{multiCollected.length + multiQueue.length}
-          </div>
-        ) : null}
       </section>
     )
   }
 
-  if (captureState === 'preview' && capturedPreviewDataUrl) {
-    const captureHasQr = !shouldRequireQr || Boolean(liveQrValue)
-    const inMultiReview = Boolean(multiQueue && multiCollected && onCaptureMultiple)
-    const needsFilterChoice = inMultiReview && multiSelectedEnhancementMode === null
-
+  if (captureState === 'editing' && selectedDraft) {
     return (
       <section className="flex h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
-        <div className="relative flex-1 overflow-hidden bg-neutral-950">
-          <img
-            src={capturedPreviewDataUrl}
-            alt="Yakalanan çek önizleme"
-            className="h-full w-full object-contain"
-          />
-
-          {isProcessing ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/65">
-              <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-emerald-500" />
-              <p className="text-sm text-white/70">Görüntü güncelleniyor...</p>
-            </div>
-          ) : null}
+        <div className="flex items-center justify-between px-4 pb-3 pt-safe">
+          <button
+            type="button"
+            className="rounded-full border border-[#007A3D] px-4 py-2 text-sm font-semibold text-white"
+            onClick={() => {
+              setCaptureState('scanning')
+            }}
+          >
+            Geri
+          </button>
+          <p className="text-lg font-semibold text-white">
+            {drafts.findIndex((item) => item.id === selectedDraft.id) + 1} / {drafts.length}
+          </p>
+          <button
+            type="button"
+            className="rounded-full bg-[#007A3D] px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            onClick={handleFinalizeSession}
+            disabled={drafts.length === 0}
+          >
+            Devam Et
+          </button>
         </div>
 
-        {documentMode ? (
-          <div className="border-t border-white/10 bg-black/80 px-4 py-3">
-            {needsFilterChoice ? (
-              <p className="mb-2 rounded-lg border border-amber-300/50 bg-amber-500/15 px-3 py-2 text-center text-sm text-amber-100">
-                Bu çek için filtre seçin (Renkli / Gelişmiş / S/B). Seçmeden ekleyemezsiniz.
-              </p>
-            ) : null}
-            <div className="grid grid-cols-3 gap-2">
-              {(['color', 'enhanced', 'bw'] as EnhancementMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`min-h-[44px] rounded-xl text-sm font-medium transition-colors disabled:opacity-40 ${
-                    enhancementMode === mode
-                      ? 'bg-emerald-600 text-white'
-                      : 'border border-white/12 bg-white/8 text-white/70 hover:bg-white/15'
-                  }`}
-                  onClick={() => {
-                    setMultiSelectedEnhancementMode(mode)
-                    void handleReprocess(mode)
-                  }}
-                  disabled={isProcessing}
-                >
-                  {mode === 'color'
-                    ? 'Renkli'
-                    : mode === 'enhanced'
-                      ? 'Gelişmiş'
-                      : 'S/B'}
-                </button>
-              ))}
+        {selectedDraft.qrValue ? (
+          <div className="px-6">
+            <div className="rounded-full border border-[#007A3D] bg-black px-4 py-3 text-center text-sm text-white">
+              {selectedDraft.qrValue}
             </div>
           </div>
         ) : null}
 
-        <div className="border-t border-white/10 bg-black/80 px-4 py-3">
-          {!captureHasQr ? (
-            <p className="mb-3 rounded-lg border border-amber-300/50 bg-amber-500/15 px-3 py-2 text-center text-sm text-amber-100">
-              QR doğrulanamadı. Lütfen tekrar çekin.
-            </p>
+        <div className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-6">
+          <img
+            src={selectedDraft.processed.dataURL}
+            alt="Seçilen çek önizleme"
+            className="max-h-full max-w-full rounded-lg object-contain"
+          />
+          {isProcessing ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/65">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/10 border-t-emerald-500" />
+            </div>
           ) : null}
-          <div className="grid grid-cols-2 gap-3">
+        </div>
+
+        <div className="border-t border-white/10 bg-black px-4 py-4">
+          <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+            {drafts.map((draft, index) => (
+              <button
+                key={draft.id}
+                type="button"
+                onClick={() => {
+                  setSelectedDraftId(draft.id)
+                }}
+                className={`relative h-[54px] min-w-[110px] overflow-hidden rounded-[6px] border transition-opacity ${
+                  draft.id === selectedDraft.id
+                    ? 'border-[#007A3D] opacity-100'
+                    : 'border-white/15 opacity-70'
+                }`}
+              >
+                <img
+                  src={draft.processed.dataURL}
+                  alt={`Çek ${index + 1}`}
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {([
+              ['color', 'Renkli'],
+              ['enhanced', 'Gelişmiş'],
+              ['bw', 'S/B'],
+            ] as Array<[EnhancementMode, string]>).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => {
+                  void handleChangeDraftMode(mode)
+                }}
+                className={`min-h-[52px] rounded-full border text-lg font-semibold transition-colors ${
+                  selectedDraft.enhancementMode === mode
+                    ? 'border-[#007A3D] bg-[#007A3D] text-white'
+                    : 'border-[#007A3D] bg-black text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
             <button
               type="button"
-              className="min-h-[48px] rounded-xl border border-white/12 bg-white/10 font-semibold text-white transition-transform active:scale-95"
-              onClick={handleRetake}
+              onClick={handleBeginAdjustDraft}
+              className="min-h-[48px] rounded-xl border border-white/12 bg-white/10 font-semibold text-white"
             >
-              {inMultiReview ? 'Iptal' : 'Tekrar Çek'}
+              Köşeleri Düzenle
             </button>
             <button
               type="button"
-              className="min-h-[48px] rounded-xl bg-emerald-600 font-semibold text-white transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
-              onClick={handleUseCapturedPhoto}
-              disabled={!captureHasQr || needsFilterChoice}
+              onClick={handleDeleteSelectedDraft}
+              className="min-h-[48px] rounded-xl border border-red-400/40 bg-red-500/10 font-semibold text-red-200"
             >
-              {inMultiReview ? 'Bu Çeki Ekle' : 'Bu Fotoğrafı Kullan'}
+              Çeki Sil
             </button>
           </div>
         </div>
@@ -650,7 +696,7 @@ export function CameraCapture({
   }
 
   return (
-    <section className="h-[100dvh] w-full overflow-hidden bg-black">
+    <section className="relative h-[100dvh] w-full overflow-hidden bg-black">
       <ScannerView
         videoRef={setVideoRef}
         devices={devices}
@@ -679,7 +725,9 @@ export function CameraCapture({
         instructionText={instructionText}
         qrRequired={shouldRequireQr}
         qrValue={liveQrValue}
-        onCapture={handleCapture}
+        onCapture={() => {
+          void handleCapture()
+        }}
         onCornersChange={(nextCorners) => {
           localCornersRef.current = nextCorners
         }}
@@ -696,16 +744,62 @@ export function CameraCapture({
         }}
       />
 
-      <div className="absolute bottom-28 left-1/2 z-20 -translate-x-1/2">
+      <div className="absolute right-4 top-[70px] z-20 flex gap-2">
         <button
           type="button"
-          className="min-h-[42px] rounded-xl border border-white/30 bg-black/45 px-4 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={handlePickImage}
           disabled={isUploadAnalyzing}
+          className="rounded-full border border-white/20 bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur disabled:opacity-50"
         >
-          {isUploadAnalyzing ? 'Resim analiz ediliyor...' : 'Resim Yukle'}
+          {isUploadAnalyzing ? 'Analiz...' : 'Resim Yükle'}
+        </button>
+        <button
+          type="button"
+          onClick={handleFinalizeSession}
+          disabled={drafts.length === 0}
+          className="rounded-full bg-[#007A3D] px-4 py-2 text-xs font-semibold text-white disabled:opacity-45"
+        >
+          Devam Et
         </button>
       </div>
+
+      {drafts.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => {
+            handleOpenDraft(selectedDraftId ?? drafts[drafts.length - 1]?.id ?? '')
+          }}
+          className="absolute bottom-[34px] left-1/2 z-20 h-[64px] w-[124px] -translate-x-[170px]"
+        >
+          {drafts.slice(-3).map((draft, index, items) => {
+            const stackIndex = items.length - index - 1
+            const isTopCard = index === items.length - 1
+
+            return (
+              <div
+                key={draft.id}
+                className={`absolute bottom-0 left-0 h-[45px] w-[99px] overflow-hidden rounded-[5px] border transition-all ${
+                  isTopCard ? 'border-[#007A3D] opacity-100' : 'border-white/15 opacity-65'
+                }`}
+                style={{
+                  transform: `translate(${stackIndex * 6}px, ${stackIndex * -3}px) scale(${1 - stackIndex * 0.03})`,
+                  zIndex: index + 1,
+                }}
+              >
+                <img
+                  src={draft.processed.dataURL}
+                  alt={`Çek ${drafts.findIndex((item) => item.id === draft.id) + 1}`}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            )
+          })}
+
+          <span className="absolute right-0 top-0 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#007A3D] text-[18px] font-semibold text-white shadow-[0_8px_18px_rgba(0,122,61,0.35)]">
+            {drafts.length}
+          </span>
+        </button>
+      ) : null}
 
       {captureError ? (
         <div className="absolute left-4 right-4 top-4 z-30 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">

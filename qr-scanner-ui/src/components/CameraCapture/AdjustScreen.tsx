@@ -22,6 +22,10 @@ export interface AdjustScreenProps {
   isProcessing: boolean
   onRetake: () => void
   onConfirm: (corners: CornerQuad) => void
+  title?: string
+  description?: string
+  retakeLabel?: string
+  confirmLabel?: string
 }
 
 interface DragState {
@@ -48,6 +52,10 @@ export function AdjustScreen({
   isProcessing,
   onRetake,
   onConfirm,
+  title = 'Köşeleri Düzenleyin',
+  description = 'Tutamaçları çekin köşelerine taşıyın, sonra devam edin.',
+  retakeLabel = 'Tekrar Çek',
+  confirmLabel = 'Devam Et',
 }: AdjustScreenProps) {
   const imageRef = useRef<HTMLImageElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -290,10 +298,8 @@ export function AdjustScreen({
   return (
     <div className="flex h-full w-full flex-col bg-black">
       <div className="border-b border-white/10 bg-black/80 px-4 pb-3 pt-safe">
-        <p className="text-base font-semibold text-white">Köşeleri Düzenleyin</p>
-        <p className="text-sm text-white/55">
-          Tutamaçları çekin köşelerine taşıyın, sonra devam edin.
-        </p>
+        <p className="text-base font-semibold text-white">{title}</p>
+        <p className="text-sm text-white/55">{description}</p>
       </div>
 
       <div className="flex flex-1 items-center justify-center overflow-hidden bg-neutral-950 px-4 py-4">
@@ -333,7 +339,7 @@ export function AdjustScreen({
             onClick={onRetake}
             disabled={isProcessing}
           >
-            Tekrar Çek
+            {retakeLabel}
           </button>
 
           <button
@@ -351,7 +357,7 @@ export function AdjustScreen({
             onClick={handleConfirm}
             disabled={isProcessing}
           >
-            Devam Et
+            {confirmLabel}
           </button>
         </div>
       </div>

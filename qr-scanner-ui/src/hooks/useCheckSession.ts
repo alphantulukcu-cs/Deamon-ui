@@ -4,6 +4,7 @@ import type {
   CheckCaptureStep,
   CheckSession,
 } from '../types/check'
+import type { EnhancementMode } from '../types/scanner'
 
 // Hook içinde tutulan ana durum: oturum, aktif adım ve o an işlenen çek.
 interface CheckSessionState {
@@ -20,8 +21,20 @@ export interface UseCheckSessionResult {
   start: () => void
   proceedToCheckPhoto: () => void
   goToHomeLanding: () => void
-  saveCheckPhoto: (dataUrl: string, qrValue?: string) => void
-  addChecksBulk: (items: Array<{ dataUrl: string; qrValue: string }>) => void
+  saveCheckPhoto: (
+    dataUrl: string,
+    qrValue?: string,
+    originalDataUrl?: string,
+    enhancementMode?: EnhancementMode,
+  ) => void
+  addChecksBulk: (
+    items: Array<{
+      dataUrl: string
+      qrValue: string
+      originalDataUrl?: string
+      enhancementMode?: EnhancementMode
+    }>,
+  ) => void
   confirmCheck: () => void
   addAnotherCheck: () => void
   retakeCheck: (checkId: string) => void
@@ -34,8 +47,22 @@ type CheckSessionAction =
   | { type: 'START' }
   | { type: 'PROCEED_TO_CHECK_PHOTO' }
   | { type: 'GO_TO_HOME_LANDING' }
-  | { type: 'SAVE_CHECK_PHOTO'; dataUrl: string; qrValue?: string }
-  | { type: 'ADD_CHECKS_BULK'; items: Array<{ dataUrl: string; qrValue: string }> }
+  | {
+      type: 'SAVE_CHECK_PHOTO'
+      dataUrl: string
+      qrValue?: string
+      originalDataUrl?: string
+      enhancementMode?: EnhancementMode
+    }
+  | {
+      type: 'ADD_CHECKS_BULK'
+      items: Array<{
+        dataUrl: string
+        qrValue: string
+        originalDataUrl?: string
+        enhancementMode?: EnhancementMode
+      }>
+    }
   | { type: 'CONFIRM_CHECK' }
   | { type: 'ADD_ANOTHER_CHECK' }
   | { type: 'RETAKE_CHECK'; checkId: string }
@@ -65,10 +92,10 @@ function createInitialState(): CheckSessionState {
 
 // Kısmi currentCheck verisini tam CapturedCheck nesnesine çevirmeye çalışır.
 function toCapturedCheck(currentCheck: Partial<CapturedCheck>): CapturedCheck | null {
-  const { id, photoDataUrl, qrValue } = currentCheck
+  const { id, photoDataUrl, originalPhotoDataUrl, qrValue, enhancementMode } = currentCheck
 
   // Zorunlu alanlardan biri eksikse tam bir çek oluşmamıştır.
-  if (!id || !photoDataUrl || !qrValue) {
+  if (!id || !photoDataUrl || !originalPhotoDataUrl || !qrValue) {
     return null
   }
 
@@ -76,7 +103,9 @@ function toCapturedCheck(currentCheck: Partial<CapturedCheck>): CapturedCheck | 
   return {
     id,
     photoDataUrl,
+    originalPhotoDataUrl,
     qrValue,
+    enhancementMode,
   }
 }
 
@@ -152,6 +181,8 @@ function checkSessionReducer(
           currentCheck: {
             ...state.currentCheck,
             photoDataUrl: action.dataUrl,
+            originalPhotoDataUrl: action.originalDataUrl ?? action.dataUrl,
+            enhancementMode: action.enhancementMode,
           },
           step: 'check-photo',
         }
@@ -160,7 +191,9 @@ function checkSessionReducer(
       const nextCurrentCheck: Partial<CapturedCheck> = {
         ...state.currentCheck,
         photoDataUrl: action.dataUrl,
+        originalPhotoDataUrl: action.originalDataUrl ?? action.dataUrl,
         qrValue: action.qrValue,
+        enhancementMode: action.enhancementMode,
       }
       return confirmCurrentCheck(state, nextCurrentCheck)
     }
@@ -169,9 +202,16 @@ function checkSessionReducer(
       const items = action.items
         .map((item) => ({
           photoDataUrl: item.dataUrl,
+          originalPhotoDataUrl: item.originalDataUrl ?? item.dataUrl,
           qrValue: item.qrValue,
+          enhancementMode: item.enhancementMode,
         }))
-        .filter((item) => item.photoDataUrl.trim() && item.qrValue.trim())
+        .filter(
+          (item) =>
+            item.photoDataUrl.trim() &&
+            item.originalPhotoDataUrl.trim() &&
+            item.qrValue.trim(),
+        )
 
       if (items.length === 0) {
         return state
@@ -180,7 +220,9 @@ function checkSessionReducer(
       const newChecks = items.map((item) => ({
         id: crypto.randomUUID(),
         photoDataUrl: item.photoDataUrl,
+        originalPhotoDataUrl: item.originalPhotoDataUrl,
         qrValue: item.qrValue,
+        enhancementMode: item.enhancementMode,
       }))
 
       return {
@@ -247,11 +289,23 @@ export function useCheckSession(): UseCheckSessionResult {
   }
 
   // Çek fotoğrafını kaydeder.
-  const saveCheckPhoto = (dataUrl: string, qrValue?: string): void => {
-    dispatch({ type: 'SAVE_CHECK_PHOTO', dataUrl, qrValue })
+  const saveCheckPhoto = (
+    dataUrl: string,
+    qrValue?: string,
+    originalDataUrl?: string,
+    enhancementMode?: EnhancementMode,
+  ): void => {
+    dispatch({ type: 'SAVE_CHECK_PHOTO', dataUrl, qrValue, originalDataUrl, enhancementMode })
   }
 
-  const addChecksBulk = (items: Array<{ dataUrl: string; qrValue: string }>): void => {
+  const addChecksBulk = (
+    items: Array<{
+      dataUrl: string
+      qrValue: string
+      originalDataUrl?: string
+      enhancementMode?: EnhancementMode
+    }>,
+  ): void => {
     dispatch({ type: 'ADD_CHECKS_BULK', items })
   }
 

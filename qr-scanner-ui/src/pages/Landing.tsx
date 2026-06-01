@@ -1,41 +1,64 @@
-import { type CSSProperties } from 'react'
-import {
-  ChartNoAxesColumnIncreasing,
-  CircleCheckBig,
-  Fingerprint,
-  Gauge,
-  type LucideIcon,
-} from 'lucide-react'
+import type { CSSProperties, SVGProps } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 interface LandingHighlight {
   title: string
   description: string
-  icon: LucideIcon
+  icon: (props: SVGProps<SVGSVGElement>) => JSX.Element
+}
+
+function ClockIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 50 50" fill="none" aria-hidden="true" {...props}>
+      <circle cx="25" cy="25" r="25" fill="#7DB900" />
+      <path
+        d="M16 16.5h9.3v3.2H19.2v3.7h5.5v3.1h-5.5v3.8h6.1v3.2H16V16.5Zm17.2 0a9.2 9.2 0 1 0 0 18.4 9.2 9.2 0 0 0 0-18.4Zm0 2.6a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2Zm-1.2 1.9h2.5v5.1l3.4 2.2-1.3 2.1-4.6-2.9V21Z"
+        fill="#fff"
+      />
+    </svg>
+  )
+}
+
+function ShieldIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 50 50" fill="none" aria-hidden="true" {...props}>
+      <circle cx="25" cy="25" r="25" fill="#7DB900" />
+      <path
+        d="M25 13.5 36.5 18v8.4c0 6.7-4.6 12.8-11.5 14.6-6.9-1.8-11.5-7.9-11.5-14.6V18L25 13.5Zm-1.5 7.1H17.7v6c0 4.6 2.7 8.9 7.3 10.8V20.6h-1.5Zm4.1 0v16.8c4.6-1.9 7.3-6.2 7.3-10.8v-6h-5.8Z"
+        fill="#fff"
+      />
+    </svg>
+  )
+}
+
+function VisibilityIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 50 50" fill="none" aria-hidden="true" {...props}>
+      <circle cx="25" cy="25" r="25" fill="#7DB900" />
+      <path
+        d="M16.4 14.8h17.2a2.4 2.4 0 0 1 2.4 2.4v11.5a2.4 2.4 0 0 1-2.4 2.4h-4.1l-3.8 3-3.8-3h-5.5a2.4 2.4 0 0 1-2.4-2.4V17.2a2.4 2.4 0 0 1 2.4-2.4Zm1.1 3.4v2.7h15v-2.7h-15Zm0 4.8v2.7h15V23h-15Zm8.2 9.8c-5.2 0-9.4 4.1-10.5 5.4 1.1 1.3 5.3 5.4 10.5 5.4 5.2 0 9.4-4.1 10.5-5.4-1.1-1.3-5.3-5.4-10.5-5.4Zm0 2.6a2.8 2.8 0 1 1 0 5.7 2.8 2.8 0 0 1 0-5.7Z"
+        fill="#fff"
+      />
+    </svg>
+  )
 }
 
 const HIGHLIGHTS: LandingHighlight[] = [
   {
     title: 'Hızlı Operasyon',
     description: 'Çek fotoğrafı ve QR doğrulaması tek akışta tamamlanır.',
-    icon: Gauge,
+    icon: ClockIcon,
   },
   {
     title: 'Güvenli Süreç',
     description: 'Kontroller standartlaşır, şube süreçlerinde hata riski azalır.',
-    icon: Fingerprint,
+    icon: ShieldIcon,
   },
   {
     title: 'Net İzlenebilirlik',
-    description: 'Oturum bazlı kayıtlarla tüm adımlar görünür ve raporlanabilir.',
-    icon: ChartNoAxesColumnIncreasing,
+    description: 'Oturum bazlı kayıtlarda tüm adımlar görünür ve raporlanabilir.',
+    icon: VisibilityIcon,
   },
-]
-
-const VALUE_POINTS = [
-  'Manuel kontrol yükünü azaltarak ekip verimliliğini artırır.',
-  'Daha tutarlı doğrulama ile operasyon kalitesini yükseltir.',
-  'Şube iş akışına uyumlu, sade ve hızlı bir kullanım deneyimi sunar.',
 ]
 
 export interface LandingProps {
@@ -45,12 +68,8 @@ export interface LandingProps {
 
 export function Landing({ onStart, embedded = false }: LandingProps) {
   const navigate = useNavigate()
-  const heroImageAnimationStyle: CSSProperties = {
-    animation: 'fadeSlideUp 480ms ease-out 80ms both',
-  }
-  const buttonAnimationStyle: CSSProperties = {
-    animation: 'fadeSlideUp 480ms ease-out 150ms both',
-  }
+  const contentAnimationStyle: CSSProperties = { animation: 'fadeSlideUp 420ms ease-out both' }
+  const buttonAnimationStyle: CSSProperties = { animation: 'fadeSlideUp 420ms ease-out 80ms both' }
 
   const handleStart = (): void => {
     if (onStart) {
@@ -63,99 +82,75 @@ export function Landing({ onStart, embedded = false }: LandingProps) {
 
   const WrapperTag = embedded ? 'section' : 'main'
   const shellClass = embedded
-    ? 'flex min-h-[calc(100vh-7rem)] flex-col bg-white text-slate-900'
-    : 'flex min-h-dvh flex-col bg-white text-slate-900'
-  const innerClass = embedded
-    ? 'mx-auto flex w-full max-w-3xl flex-1 flex-col px-0 py-6 sm:px-6'
-    : 'mx-auto flex w-full max-w-3xl flex-1 flex-col px-0 py-8 sm:px-6'
+    ? 'flex min-h-[calc(100vh-7rem)] flex-col bg-white text-[#4B4F54]'
+    : 'flex min-h-dvh flex-col bg-white text-[#4B4F54]'
 
   return (
     <WrapperTag className={shellClass}>
       <style>
         {`@keyframes fadeSlideUp {
-          from { opacity: 0; transform: translateY(20px); }
+          from { opacity: 0; transform: translateY(12px); }
           to { opacity: 1; transform: translateY(0); }
         }`}
       </style>
-
-      <div
-        style={heroImageAnimationStyle}
-        className="relative left-1/2 right-1/2 -mx-[50vw] w-screen overflow-hidden border-y border-[#DDEFE3] bg-white shadow-[0_8px_18px_rgba(0,122,61,0.12)] lg:left-auto lg:right-auto lg:mx-auto"
-      >
-        <img
-          src="/hero-seker.png"
-          alt="Şekerbank istihbarat sistemi hero görseli"
-          className="h-52 w-full object-cover sm:h-64 lg:h-[32rem] xl:h-[36rem]"
-        />
-      </div>
-
-      <div className={innerClass}>
-        <div className="flex flex-1 flex-col items-center justify-center py-6 text-center">
-          
-
-          <div className="w-full px-4">
-            <span className="inline-flex items-center rounded-full border border-[#CDE7D6] bg-[#F4FBF6] px-3 py-1 text-xs font-semibold tracking-wide text-[#007A3D]">
+      <div className="mx-auto flex w-full max-w-[402px] flex-1 flex-col bg-white">
+        <div className="flex flex-1 flex-col">
+          <section
+            style={contentAnimationStyle}
+            className="border-t-2 border-[#7DB900] px-4 pb-6 pt-7 text-center"
+          >
+            <p className="text-[18px] font-semibold leading-[22px] text-[#007A3D]">
               Şube Operasyonları İçin Yeni Nesil Yardımcı
-            </span>
-
-            <h1 className="mt-4 text-3xl font-bold leading-tight text-[#4B4F54] sm:text-4xl">
+            </p>
+            <h1 className="mt-[18px] text-[32px] font-semibold leading-[36px] tracking-[-0.02em] text-[#4B4F54]">
               İstihbarat Sistemi ile
-              <span className="block text-[#007A3D]">çek süreçlerini hızlandırın</span>
+              <span className="block text-[#007A3D]">Çek Süreçlerini Hızlandırın</span>
             </h1>
+          </section>
 
-            <p className="mt-3 text-sm leading-6 text-[#6E747B] sm:text-base">
+          <div className="h-[200px] shrink-0 overflow-hidden">
+            <img
+              src="/hero-seker.png"
+              alt="Çek tarama görseli"
+              className="h-full w-full object-cover"
+            />
+          </div>
+
+          <section className="px-[14px] pt-5 text-center">
+            <p className="text-[14px] font-normal leading-[22px] text-[#4B4F54]">
               Çek yakalama, QR okuma ve doğrulama adımlarını tek bir akışta birleştirerek
               operasyonu daha hızlı, daha güvenli ve daha ölçülebilir hale getirin.
             </p>
 
-            <div className="mt-6 grid grid-cols-1 gap-3 text-left sm:grid-cols-3">
+            <div className="mt-10 grid grid-cols-3 gap-[10px]">
               {HIGHLIGHTS.map((item) => {
                 const Icon = item.icon
 
                 return (
-                  <article
-                    key={item.title}
-                    className="rounded-2xl border border-[#DDEFE3] bg-white p-4 shadow-[0_2px_8px_rgba(0,122,61,0.08)]"
-                  >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EAF4EE]">
-                      <Icon className="h-4 w-4 text-[#007A3D]" aria-hidden="true" />
-                    </div>
-                    <h2 className="mt-3 text-sm font-semibold text-[#4B4F54]">{item.title}</h2>
-                    <p className="mt-1 text-xs leading-5 text-[#6E747B]">{item.description}</p>
+                  <article key={item.title} className="flex flex-col items-center text-center">
+                    <Icon className="h-[50px] w-[50px]" />
+                    <h2 className="mt-3 text-[16px] font-bold leading-[22px] text-[#4B4F54]">
+                      {item.title}
+                    </h2>
+                    <p className="mt-1 text-[14px] leading-[20px] text-[#4B4F54]">
+                      {item.description}
+                    </p>
                   </article>
                 )
               })}
             </div>
+          </section>
 
-            <section className="mt-5 rounded-2xl border border-[#DDEFE3] bg-[#F7FBF8] p-4 text-left sm:p-5">
-              <p className="text-sm font-semibold text-[#007A3D]">
-                Neden İstihbarat Sistemi?
-              </p>
-              <ul className="mt-3 space-y-2">
-                {VALUE_POINTS.map((point) => (
-                  <li key={point} className="flex items-start gap-2 text-sm text-[#4B4F54]">
-                    <CircleCheckBig
-                      className="mt-0.5 h-4 w-4 shrink-0 text-[#007A3D]"
-                      aria-hidden="true"
-                    />
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
+          <div className="mt-auto flex flex-col items-center px-4 pb-8 pt-10">
+            <button
+              type="button"
+              onClick={handleStart}
+              style={buttonAnimationStyle}
+              className="h-[50px] w-[200px] rounded-[25px] bg-[#007A3D] text-[20px] font-normal leading-[22px] text-[#F3F3F3] transition-colors hover:bg-[#018342]"
+            >
+              Hemen Başla
+            </button>
           </div>
-
-          <button
-            type="button"
-            onClick={handleStart}
-            style={buttonAnimationStyle}
-            className="mt-7 h-14 w-full max-w-xs rounded-2xl bg-[#007A3D] text-lg font-semibold text-white shadow-[0_10px_20px_rgba(0,122,61,0.25)] transition-transform hover:bg-[#018342] active:scale-95"
-          >
-            Hemen Başla
-          </button>
-          <p className="mt-3 text-xs text-[#8A9096]">
-            Ortalama birkaç adımda işlem tamamlanır.
-          </p>
         </div>
       </div>
     </WrapperTag>

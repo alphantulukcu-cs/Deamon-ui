@@ -14,7 +14,9 @@ import type { CapturedCheck } from '../types/check'
 import { Landing } from './Landing'
 
 function isCapturedCheck(check: Partial<CapturedCheck>): check is CapturedCheck {
-  return Boolean(check.id && check.photoDataUrl && check.qrValue)
+  return Boolean(
+    check.id && check.photoDataUrl && check.originalPhotoDataUrl && check.qrValue,
+  )
 }
 
 function resolveSummaryCheck(
@@ -101,6 +103,8 @@ export function Home() {
           stepTotal={1}
           onMenuOpen={toggle}
           fullWidth
+          mainClassName="bg-white"
+          bodyClassName="pb-0 sm:pb-0"
         >
           <StartConsentStep
             onContinue={proceedToCheckPhoto}

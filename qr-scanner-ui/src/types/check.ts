@@ -1,7 +1,9 @@
 export interface CapturedCheck {
   id: string
   photoDataUrl: string
+  originalPhotoDataUrl: string
   qrValue: string
+  enhancementMode?: 'color' | 'bw' | 'enhanced'
 }
 
 export interface CheckSession {

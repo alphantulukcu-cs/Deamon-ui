@@ -10,6 +10,7 @@ export interface SubmitInviteCheckPayload {
   sequence_no: number
   qr_value: string
   image_data_url: string
+  original_image_data_url?: string
   captured_at: string
   metadata?: Record<string, unknown>
 }

@@ -21,7 +21,9 @@ import type {
 const CLAIM_CACHE_KEY_PREFIX = 'scan-link-claim:'
 
 function isCapturedCheck(check: Partial<CapturedCheck>): check is CapturedCheck {
-  return Boolean(check.id && check.photoDataUrl && check.qrValue)
+  return Boolean(
+    check.id && check.photoDataUrl && check.originalPhotoDataUrl && check.qrValue,
+  )
 }
 
 function resolveSummaryCheck(
@@ -53,10 +55,12 @@ function mapSessionChecksToPayload(checks: CapturedCheck[]): SubmitInviteCheckPa
     sequence_no: index + 1,
     qr_value: check.qrValue,
     image_data_url: check.photoDataUrl,
+    original_image_data_url: check.originalPhotoDataUrl,
     captured_at: new Date().toISOString(),
     metadata: {
       client_check_id: check.id,
       qr_char_length: check.qrValue.length,
+      enhancement_mode: check.enhancementMode ?? 'enhanced',
       source: 'mobile_browser',
     },
   }))
@@ -354,19 +358,7 @@ export function CaptureSession() {
           stepTotal={1}
           fullWidth
         >
-          <section className="mx-auto w-full max-w-3xl px-0">
-            <Landing onStart={start} embedded />
-            <div className="mx-4 mb-6 rounded-2xl border border-[#DDEFE3] bg-white p-4 shadow-[0_6px_20px_rgba(0,122,61,0.08)] sm:mx-6">
-              <p className="text-xs uppercase tracking-wide text-[#007A3D]">Davet Onaylandı</p>
-              <p className="mt-2 text-sm text-[#6E747B]">
-                Müşteri TC: <strong>{claimData.customer_national_id}</strong>
-              </p>
-              <p className="mt-1 text-sm text-[#6E747B]">
-                Müşteri e-posta: <strong>{claimData.customer_email}</strong>
-              </p>
-              <p className="mt-1 text-sm text-[#6E747B]">Link geçerlilik: {inviteExpiresAt}</p>
-            </div>
-          </section>
+          <Landing onStart={start} embedded />
         </AppLayout>
       )
       break
@@ -378,6 +370,8 @@ export function CaptureSession() {
           stepCurrent={1}
           stepTotal={1}
           fullWidth
+          mainClassName="bg-white"
+          bodyClassName="pb-0 sm:pb-0"
         >
           <StartConsentStep
             onContinue={proceedToCheckPhoto}

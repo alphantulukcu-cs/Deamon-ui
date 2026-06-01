@@ -9,6 +9,8 @@ export interface AppLayoutProps {
   onBack?: () => void
   onMenuOpen?: () => void
   fullWidth?: boolean
+  mainClassName?: string
+  bodyClassName?: string
 }
 
 function clampProgress(stepCurrent: number, stepTotal: number): number {
@@ -25,6 +27,8 @@ export function AppLayout({
   onBack,
   onMenuOpen,
   fullWidth = false,
+  mainClassName,
+  bodyClassName,
 }: AppLayoutProps) {
   const progressPercent = clampProgress(stepCurrent, stepTotal)
   const headerContentClass = fullWidth
@@ -33,9 +37,15 @@ export function AppLayout({
   const bodyContentClass = fullWidth
     ? 'mx-auto w-full flex-1 px-0 pb-6 pt-14 sm:px-0 sm:pb-8'
     : 'mx-auto w-full max-w-3xl flex-1 px-4 pb-6 pt-14 sm:px-6 sm:pb-8'
+  const resolvedMainClassName = mainClassName
+    ? `flex min-h-screen flex-col text-[#4B4F54] ${mainClassName}`
+    : 'flex min-h-screen flex-col bg-[#F3F3F3] text-[#4B4F54]'
+  const resolvedBodyClassName = bodyClassName
+    ? `${bodyContentClass} ${bodyClassName}`
+    : bodyContentClass
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#F3F3F3] text-[#4B4F54]">
+    <main className={resolvedMainClassName}>
       <div className="fixed inset-x-0 top-0 z-30">
         <header className="h-14 border-b border-[#DFDFDF] bg-white/95 backdrop-blur-sm">
           <div className={headerContentClass}>
@@ -85,7 +95,7 @@ export function AppLayout({
         </div>
       </div>
 
-      <div className={bodyContentClass}>
+      <div className={resolvedBodyClassName}>
         {children}
       </div>
 

@@ -23,6 +23,7 @@ interface UseImageProcessingResult {
   processCapturedFrame: (
     sourceCanvas: HTMLCanvasElement,
     sourceCorners: CornerQuad,
+    modeOverride?: EnhancementMode,
   ) => Promise<ProcessedCapture>
   reprocessWithMode: (mode: EnhancementMode) => Promise<ProcessedCapture | null>
   isProcessing: boolean
@@ -37,7 +38,7 @@ export function useImageProcessing(
   videoRef: RefObject<HTMLVideoElement>,
 ): UseImageProcessingResult {
   const [isProcessing, setIsProcessing] = useState(false)
-  const [enhancementMode, setEnhancementMode] = useState<EnhancementMode>('color')
+  const [enhancementMode, setEnhancementMode] = useState<EnhancementMode>('enhanced')
   const rawWarpedCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const createCaptureDraft = useCallback(
@@ -107,6 +108,7 @@ export function useImageProcessing(
     async (
       sourceCanvas: HTMLCanvasElement,
       sourceCorners: CornerQuad,
+      modeOverride?: EnhancementMode,
     ): Promise<ProcessedCapture> => {
       setIsProcessing(true)
 
@@ -114,9 +116,10 @@ export function useImageProcessing(
         const ordered = orderCorners(sourceCorners)
         const { width: destinationWidth, height: destinationHeight } =
           quadDimensions(ordered)
+        const resolvedMode = modeOverride ?? enhancementMode
 
         let cvLib: OpenCvLike | null = null
-        if (enhancementMode === 'bw') {
+        if (resolvedMode === 'bw') {
           try {
             cvLib = await loadOpenCV()
           } catch {
@@ -139,7 +142,7 @@ export function useImageProcessing(
         }
 
         rawWarpedCanvasRef.current = rawCanvas
-        return buildResult(rawCanvas, enhancementMode, cvLib)
+        return buildResult(rawCanvas, resolvedMode, cvLib)
       } finally {
         setIsProcessing(false)
       }
